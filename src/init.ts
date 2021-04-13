@@ -1,7 +1,7 @@
 type Pointer = CallableFunction;
 type PrimitiveValue = number | symbol | string | boolean | bigint | null | undefined;
 type PrimitiveOrPointer = Pointer | PrimitiveValue;
-type ProxyTarget = CallableFunction | any[] | object;
+export type ProxyTarget = CallableFunction | any[] | object;
 type ShadowTarget = CallableFunction | any[] | object;
 type ProxyTargetType = "object" | "function" | "array";
 type CallablePushTarget = (
@@ -43,7 +43,7 @@ type CallableGet = (
 type CallableGetOwnPropertyDescriptor = (
     targetPointer: Pointer,
     key: PropertyKey,
-    callback: (
+    foreignCallableDescriptorCallback: (
         configurable: boolean,
         enumerable: boolean,
         writable: boolean,
@@ -57,7 +57,7 @@ type CallableHas = (targetPointer: Pointer, key: PropertyKey) => boolean;
 type CallableIsExtensible = (targetPointer: Pointer) => boolean;
 type CallableOwnKeys = (
     targetPointer: Pointer,
-    callback: (...args: (string | symbol)[]) => void
+    foreignCallableKeysCallback: (...args: (string | symbol)[]) => void
 ) => void;
 type CallablePreventExtensions = (targetPointer: Pointer) => boolean;
 type CallableSet = (
@@ -70,7 +70,7 @@ type CallableSetPrototypeOf = (
     targetPointer: Pointer,
     protoValueOrPointer: PrimitiveOrPointer
 ) => boolean;
-type ConnectCallback = (
+export type ConnectCallback = (
     pushTarget: CallablePushTarget,
     callableApply: CallableApply,
     callableConstruct: CallableConstruct,
@@ -92,7 +92,7 @@ type HooksCallback = (
     ...connectArgs: Parameters<ConnectCallback>
 ) => void;
 
-function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCallback {
+export default function init(undefinedSymbol: symbol, foreignCallableHooksCallback: HooksCallback): ConnectCallback {
     const { eval: cachedLocalEval } = globalThis;
     const {
         defineProperty,
@@ -128,7 +128,7 @@ function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCal
     let foreignCallableSet: CallableSet;
     let foreignCallableSetPrototypeOf: CallableSetPrototypeOf;
 
-    function setRef(obj: any) {
+    function setRef(obj: any): void {
         // assert: ref is undefined
         // assert: obj is a ProxyTarget
         ref = obj;
@@ -268,7 +268,7 @@ function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCal
             }
         }
         return foreignPushTarget(
-            () => setRef(value),
+            () => setRef(value), // this is the implicit WeakMap
             typeofNextTarget as ProxyTargetType,
             protoInNextTarget, // only for typeofTarget === 'function'
             functionNameOfNextTarget, // only for typeofTarget === 'function'
@@ -383,7 +383,7 @@ function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCal
         getOwnPropertyDescriptor(shadowTarget: ShadowTarget, key: PropertyKey): PropertyDescriptor | undefined {
             const { targetPointer } = this;
             let desc: PropertyDescriptor | undefined = undefined;
-            const callback = (
+            const callableDescriptorCallback = (
                 configurable: boolean,
                 enumerable: boolean,
                 writable: boolean,
@@ -399,7 +399,7 @@ function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCal
                     desc.value = getLocalValue(valuePointer);
                 }
             }
-            foreignCallableGetOwnPropertyDescriptor(targetPointer, key, callback);
+            foreignCallableGetOwnPropertyDescriptor(targetPointer, key, callableDescriptorCallback);
             if (desc === undefined) {
                 return desc!;
             }
@@ -433,8 +433,8 @@ function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCal
         ownKeys(_shadowTarget: ShadowTarget): ArrayLike<string | symbol> {
             const { targetPointer } = this;
             let keys: ArrayLike<string | symbol> = [];
-            const callback = (...args: (string | symbol)[]) => keys = args;
-            foreignCallableOwnKeys(targetPointer, callback);
+            const callableKeysCallback = (...args: (string | symbol)[]) => keys = args;
+            foreignCallableOwnKeys(targetPointer, callableKeysCallback);
             return keys;
         }
         preventExtensions(shadowTarget: ShadowTarget): boolean {
@@ -470,14 +470,15 @@ function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCal
     freeze(BoundaryProxyHandler.prototype);
 
     // exporting callable hooks
-    callback(
+    foreignCallableHooksCallback(
         // exportValues
         () => {
-            getPointer([
+            const pointer = getPointer([
                 globalThis,
                 (sourceText: string) => cachedLocalEval(sourceText),
                 (specifier: string) => import(specifier),
             ]);
+            pointer();
         },
         getRef,
         // pushTarget
@@ -578,7 +579,7 @@ function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCal
         (
             targetPointer: Pointer,
             key: PropertyKey,
-            callback: (
+            foreignCallableDescriptorCallback: (
                 configurable: boolean,
                 enumerable: boolean,
                 writable: boolean,
@@ -604,7 +605,7 @@ function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCal
             const valuePointer = getValueOrPointer(value);
             const getPointer = getValueOrPointer(get);
             const setPointer = getValueOrPointer(set);
-            callback(!!configurable, !!enumerable, !!writable, valuePointer, getPointer, setPointer);
+            foreignCallableDescriptorCallback(!!configurable, !!enumerable, !!writable, valuePointer, getPointer, setPointer);
         },
         // callableGetPrototypeOf
         (targetPointer: Pointer): PrimitiveOrPointer => {
@@ -628,12 +629,12 @@ function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCal
         // callableOwnKeys
         (
             targetPointer: Pointer,
-            callback: (...args: (string | symbol)[]) => void
+            foreignCallableKeysCallback: (...args: (string | symbol)[]) => void
         ): void => {
             targetPointer();
             const target = getRef();
             const keys = ownKeys(target);
-            callback(...keys);
+            foreignCallableKeysCallback(...keys);
         },
         // callablePreventExtensions
         (targetPointer: Pointer): boolean => {
@@ -697,62 +698,3 @@ function localInit(undefinedSymbol: symbol, callback: HooksCallback): ConnectCal
         foreignCallableSetPrototypeOf = callableSetPrototypeOf;
     };
 };
-
-const localInitSourceText = localInit.toString();
-
-// @ts-ignore
-export class NearRealm extends Realm {
-
-    #foreignIndirectEval: (sourceText: string) => any;
-    #foreignImport: (specifier: string) =>Promise<any>;
-    #foreignGlobalThis: typeof globalThis;
-
-    constructor() {
-        super();
-        const undefinedSymbol = Symbol();
-        let localHooks: Parameters<ConnectCallback>;
-        let foreignHooks: Parameters<ConnectCallback>;
-        let localGetRef: () => ProxyTarget;
-        let foreignExportValues: () => void;
-        const localConnect = localInit(undefinedSymbol, (_exportValues, getRef, ...hooks) => {
-            localGetRef = getRef;
-            localHooks = hooks;
-        });
-        const foreignInit = super.evaluate(localInitSourceText) as (...args: Parameters<typeof localInit>) => ReturnType<typeof localInit>;
-        const foreignConnect = foreignInit(undefinedSymbol, (exportValues, _getRef, ...hooks) => {
-            foreignExportValues = exportValues;
-            foreignHooks = hooks;
-        });
-        // @ts-ignore
-        localConnect(...foreignHooks);
-        // @ts-ignore
-        foreignConnect(...localHooks);
-        // @ts-ignore
-        foreignExportValues();
-        // @ts-ignore
-        const [ foreignIndirectEval, foreignImport, foreignGlobalThis ] = localGetRef() as any;
-        this.#foreignGlobalThis = foreignGlobalThis;
-        this.#foreignIndirectEval = foreignIndirectEval;
-        this.#foreignImport = foreignImport;
-    }
-
-    get globalThis() {
-        return this.#foreignGlobalThis;
-    }
-
-    evaluate(sourceText: string) {
-        if (typeof sourceText !== 'string') {
-            throw new TypeError(`Invalid sourceText argument, must be a string.`);
-        }
-        return this.#foreignIndirectEval(sourceText);
-    }
-
-    async importValue(specifier: string, name: string): Promise<any> {
-        const foreignNSObj = await this.#foreignImport(specifier);
-        if (name in foreignNSObj) {
-            return foreignNSObj[name];
-        }
-        throw new TypeError(`Invalid Binding Name`);
-    }
-
-}
