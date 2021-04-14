@@ -24,7 +24,7 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
     var defineProperty = Reflect.defineProperty, getOwnPropertyDescriptor = Reflect.getOwnPropertyDescriptor, setPrototypeOf = Reflect.setPrototypeOf, apply = Reflect.apply, construct = Reflect.construct, deleteProperty = Reflect.deleteProperty, get = Reflect.get, set = Reflect.set, has = Reflect.has, getPrototypeOf = Reflect.getPrototypeOf, isExtensible = Reflect.isExtensible, ownKeys = Reflect.ownKeys, preventExtensions = Reflect.preventExtensions;
     var freeze = Object.freeze, create = Object.create, defineProperties = Object.defineProperties;
     var isArrayOrNotOrThrowForRevoked = Array.isArray;
-    var ref;
+    var selectedTarget;
     var foreignPushTarget;
     var foreignCallableApply;
     var foreignCallableConstruct;
@@ -39,14 +39,15 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
     var foreignCallablePreventExtensions;
     var foreignCallableSet;
     var foreignCallableSetPrototypeOf;
-    function setRef(obj) {
-        // assert: ref is undefined
-        // assert: obj is a ProxyTarget
-        ref = obj;
+    function selectTarget(originalTarget) {
+        // assert: selectedTarget is undefined
+        // assert: originalTarget is a ProxyTarget
+        selectedTarget = originalTarget;
     }
-    function getRef() {
-        var r = ref;
-        ref = undefined;
+    function getSelectedTarget() {
+        // assert: selectedTarget is a ProxyTarget
+        var r = selectedTarget;
+        selectedTarget = undefined;
         return r;
     }
     function createShadowTarget(typeofTarget, protoInTarget, functionNameOfTarget, isTargetAnArray) {
@@ -129,17 +130,17 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
     function isPrimitiveValue(primitiveValueOrForeignCallable) {
         return typeof primitiveValueOrForeignCallable !== 'function' && typeof primitiveValueOrForeignCallable !== 'object';
     }
-    function getPointer(value) {
+    function getPointer(originalTarget) {
         var _a;
         // extracting the metadata about the proxy target
-        var typeofNextTarget = typeof value;
+        var typeofNextTarget = typeof originalTarget;
         var protoInNextTarget;
         var functionNameOfNextTarget;
         var isNextTargetAnArray;
         if (typeofNextTarget) {
             // this is never invoked just needed to anchor the realm for errors
             try {
-                protoInNextTarget = 'prototype' in value;
+                protoInNextTarget = 'prototype' in originalTarget;
             }
             catch (_b) {
                 // target is either a revoked proxy, or a proxy that throws on the
@@ -149,7 +150,7 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
             }
             try {
                 // a revoked proxy will throw when reading the function name
-                functionNameOfNextTarget = (_a = getOwnPropertyDescriptor(value, 'name')) === null || _a === void 0 ? void 0 : _a.value;
+                functionNameOfNextTarget = (_a = getOwnPropertyDescriptor(originalTarget, 'name')) === null || _a === void 0 ? void 0 : _a.value;
             }
             catch (_c) {
                 // intentionally swallowing the error because this method is just extracting the function
@@ -160,22 +161,22 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
         else {
             try {
                 // try/catch in case Array.isArray throws when target is a revoked proxy
-                isNextTargetAnArray = isArrayOrNotOrThrowForRevoked(value);
+                isNextTargetAnArray = isArrayOrNotOrThrowForRevoked(originalTarget);
             }
             catch (_d) {
                 // target is a revoked proxy, so the type doesn't matter much from this point on
                 isNextTargetAnArray = false;
             }
         }
-        return foreignPushTarget(function () { return setRef(value); }, // this is the implicit WeakMap
-        typeofNextTarget, protoInNextTarget, // only for typeofTarget === 'function'
+        var pointerForOriginalTarget = function () { return selectTarget(originalTarget); }; // the closure works as the implicit WeakMap
+        return foreignPushTarget(pointerForOriginalTarget, typeofNextTarget, protoInNextTarget, // only for typeofTarget === 'function'
         functionNameOfNextTarget, // only for typeofTarget === 'function'
         isNextTargetAnArray);
     }
     function getLocalValue(primitiveValueOrForeignCallable) {
         if (isPointer(primitiveValueOrForeignCallable)) {
             primitiveValueOrForeignCallable();
-            return getRef();
+            return getSelectedTarget();
         }
         return primitiveValueOrForeignCallable;
     }
@@ -345,7 +346,7 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
             function (specifier) { return import(specifier); },
         ]);
         pointer();
-    }, getRef, 
+    }, getSelectedTarget, 
     // pushTarget
     function (pointer, typeofNextTarget, protoInNextTarget, // only for typeofTarget === 'function'
     functionNameOfNextTarget, // only for typeofTarget === 'function'
@@ -353,7 +354,7 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
         var shadowTarget = createShadowTarget(typeofNextTarget, protoInNextTarget, functionNameOfNextTarget, isNextTargetAnArray);
         var proxyHandler = new BoundaryProxyHandler(pointer);
         var proxy = new Proxy(shadowTarget, proxyHandler);
-        return setRef.bind(undefined, proxy);
+        return selectTarget.bind(undefined, proxy);
     }, 
     // callableApply
     function (targetPointer, thisArgValueOrPointer) {
@@ -362,7 +363,7 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
             listOfValuesOrPointers[_i - 2] = arguments[_i];
         }
         targetPointer();
-        var fn = getRef();
+        var fn = getSelectedTarget();
         var thisArg = getLocalValue(thisArgValueOrPointer);
         var args = listOfValuesOrPointers.map(getLocalValue);
         var value = apply(fn, thisArg, args);
@@ -375,7 +376,7 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
             listOfValuesOrPointers[_i - 2] = arguments[_i];
         }
         targetPointer();
-        var constructor = getRef();
+        var constructor = getSelectedTarget();
         var newTarget = getLocalValue(newTargetPointer);
         var args = listOfValuesOrPointers.map(getLocalValue);
         var value = construct(constructor, args, newTarget);
@@ -384,7 +385,7 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
     // callableDefineProperty
     function (targetPointer, key, configurable, enumerable, writable, valuePointer, getPointer, setPointer) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         var desc = create(null);
         if (configurable !== undefinedSymbol) {
             desc.configurable = configurable;
@@ -409,13 +410,13 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
     // callableDeleteProperty
     function (targetPointer, key) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         return deleteProperty(target, key);
     }, 
     // callableGet
     function (targetPointer, key, receiverPointer) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         var receiver = getLocalValue(receiverPointer);
         var value = get(target, key, receiver);
         return isPrimitiveValue(value) ? value : getPointer(value);
@@ -423,7 +424,7 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
     // callableGetOwnPropertyDescriptor
     function (targetPointer, key, foreignCallableDescriptorCallback) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         var desc = getOwnPropertyDescriptor(target, key);
         if (!desc) {
             return;
@@ -437,39 +438,39 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
     // callableGetPrototypeOf
     function (targetPointer) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         var proto = getPrototypeOf(target);
         return getValueOrPointer(proto);
     }, 
     // callableHas
     function (targetPointer, key) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         return has(target, key);
     }, 
     // callableIsExtensible
     function (targetPointer) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         return isExtensible(target);
     }, 
     // callableOwnKeys
     function (targetPointer, foreignCallableKeysCallback) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         var keys = ownKeys(target);
         foreignCallableKeysCallback.apply(void 0, keys);
     }, 
     // callablePreventExtensions
     function (targetPointer) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         return preventExtensions(target);
     }, 
     // callableSet
     function (targetPointer, key, valuePointer, receiverPointer) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         var value = getLocalValue(valuePointer);
         var receiver = getLocalValue(receiverPointer);
         return set(target, key, value, receiver);
@@ -477,7 +478,7 @@ function init(undefinedSymbol, foreignCallableHooksCallback) {
     // callableSetPrototypeOf
     function (targetPointer, protoValueOrPointer) {
         targetPointer();
-        var target = getRef();
+        var target = getSelectedTarget();
         var proto = getLocalValue(protoValueOrPointer);
         return setPrototypeOf(target, proto);
     });

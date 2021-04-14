@@ -112,7 +112,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
     const { freeze, create, defineProperties } = Object;
     const { isArray: isArrayOrNotOrThrowForRevoked } = Array;
 
-    let ref: undefined | ProxyTarget;
+    let selectedTarget: undefined | ProxyTarget;
     let foreignPushTarget: CallablePushTarget;
     let foreignCallableApply: CallableApply;
     let foreignCallableConstruct: CallableConstruct;
@@ -128,15 +128,16 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
     let foreignCallableSet: CallableSet;
     let foreignCallableSetPrototypeOf: CallableSetPrototypeOf;
 
-    function setRef(obj: any): void {
-        // assert: ref is undefined
-        // assert: obj is a ProxyTarget
-        ref = obj;
+    function selectTarget(originalTarget: ProxyTarget): void {
+        // assert: selectedTarget is undefined
+        // assert: originalTarget is a ProxyTarget
+        selectedTarget = originalTarget;
     }
 
-    function getRef(): any {
-        const r = ref;
-        ref = undefined;
+    function getSelectedTarget(): any {
+        // assert: selectedTarget is a ProxyTarget
+        const r = selectedTarget;
+        selectedTarget = undefined;
         return r;
     }
 
@@ -234,16 +235,16 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
         return typeof primitiveValueOrForeignCallable !== 'function' && typeof primitiveValueOrForeignCallable !== 'object';
     }
 
-    function getPointer(value: ProxyTarget): Pointer {
+    function getPointer(originalTarget: ProxyTarget): Pointer {
         // extracting the metadata about the proxy target
-        const typeofNextTarget = typeof value;
+        const typeofNextTarget = typeof originalTarget;
         let protoInNextTarget: boolean | undefined;
         let functionNameOfNextTarget: string | undefined;
         let isNextTargetAnArray: boolean | undefined;
         if (typeofNextTarget) {
             // this is never invoked just needed to anchor the realm for errors
             try {
-                protoInNextTarget = 'prototype' in value;
+                protoInNextTarget = 'prototype' in originalTarget;
             } catch {
                 // target is either a revoked proxy, or a proxy that throws on the
                 // `has` trap, in which case going with a strict mode function seems
@@ -252,7 +253,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             }
             try {
                 // a revoked proxy will throw when reading the function name
-                functionNameOfNextTarget = getOwnPropertyDescriptor(value, 'name')?.value;
+                functionNameOfNextTarget = getOwnPropertyDescriptor(originalTarget, 'name')?.value;
             } catch {
                 // intentionally swallowing the error because this method is just extracting the function
                 // in a way that it should always succeed except for the cases in which the provider is a proxy
@@ -261,14 +262,15 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
         } else {
             try {
                 // try/catch in case Array.isArray throws when target is a revoked proxy
-                isNextTargetAnArray = isArrayOrNotOrThrowForRevoked(value);
+                isNextTargetAnArray = isArrayOrNotOrThrowForRevoked(originalTarget);
             } catch {
                 // target is a revoked proxy, so the type doesn't matter much from this point on
                 isNextTargetAnArray = false;
             }
         }
+        const pointerForOriginalTarget = () => selectTarget(originalTarget); // the closure works as the implicit WeakMap
         return foreignPushTarget(
-            () => setRef(value), // this is the implicit WeakMap
+            pointerForOriginalTarget,
             typeofNextTarget as ProxyTargetType,
             protoInNextTarget, // only for typeofTarget === 'function'
             functionNameOfNextTarget, // only for typeofTarget === 'function'
@@ -279,7 +281,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
     function getLocalValue(primitiveValueOrForeignCallable: PrimitiveOrPointer): any {
         if (isPointer(primitiveValueOrForeignCallable)) {
             primitiveValueOrForeignCallable();
-            return getRef();
+            return getSelectedTarget();
         }
         return primitiveValueOrForeignCallable;
     }
@@ -480,7 +482,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             ]);
             pointer();
         },
-        getRef,
+        getSelectedTarget,
         // pushTarget
         (
             pointer: () => void,
@@ -492,7 +494,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             const shadowTarget = createShadowTarget(typeofNextTarget, protoInNextTarget, functionNameOfNextTarget, isNextTargetAnArray);
             const proxyHandler = new BoundaryProxyHandler(pointer);
             const proxy = new Proxy<ShadowTarget>(shadowTarget, proxyHandler as ProxyHandler<ShadowTarget>);
-            return setRef.bind(undefined, proxy);
+            return selectTarget.bind(undefined, proxy);
         },
         // callableApply
         (
@@ -501,7 +503,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             ...listOfValuesOrPointers: PrimitiveOrPointer[]
         ): PrimitiveOrPointer => {
             targetPointer();
-            const fn = getRef();
+            const fn = getSelectedTarget();
             let thisArg = getLocalValue(thisArgValueOrPointer);
             let args = listOfValuesOrPointers.map(getLocalValue);
             const value = apply(fn, thisArg, args);
@@ -514,7 +516,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             ...listOfValuesOrPointers: PrimitiveOrPointer[]
         ): PrimitiveOrPointer => {
             targetPointer();
-            const constructor = getRef();
+            const constructor = getSelectedTarget();
             let newTarget = getLocalValue(newTargetPointer);
             let args = listOfValuesOrPointers.map(getLocalValue);
             const value = construct(constructor, args, newTarget);
@@ -532,7 +534,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             setPointer: PrimitiveOrPointer
         ): boolean => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             const desc = create(null);
             if (configurable !== undefinedSymbol) {
                 desc.configurable = configurable;
@@ -560,7 +562,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             key: PropertyKey
         ): boolean => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             return deleteProperty(target, key);
         },
         // callableGet
@@ -570,7 +572,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             receiverPointer: PrimitiveOrPointer
         ): PrimitiveOrPointer => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             const receiver = getLocalValue(receiverPointer);
             const value = get(target, key, receiver);
             return isPrimitiveValue(value) ? value : getPointer(value);
@@ -589,7 +591,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             ) => void
         ): void => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             const desc = getOwnPropertyDescriptor(target, key);
             if (!desc) {
                 return;
@@ -610,20 +612,20 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
         // callableGetPrototypeOf
         (targetPointer: Pointer): PrimitiveOrPointer => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             const proto = getPrototypeOf(target);
             return getValueOrPointer(proto);
         },
         // callableHas
         (targetPointer: Pointer, key: PropertyKey): boolean => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             return has(target, key);
         },
         // callableIsExtensible
         (targetPointer: Pointer): boolean => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             return isExtensible(target);
         },
         // callableOwnKeys
@@ -632,14 +634,14 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             foreignCallableKeysCallback: (...args: (string | symbol)[]) => void
         ): void => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             const keys = ownKeys(target);
             foreignCallableKeysCallback(...keys);
         },
         // callablePreventExtensions
         (targetPointer: Pointer): boolean => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             return preventExtensions(target);
         },
         // callableSet
@@ -650,7 +652,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             receiverPointer: PrimitiveOrPointer
         ): boolean => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             const value = getLocalValue(valuePointer);
             const receiver = getLocalValue(receiverPointer);
             return set(target, key, value, receiver);
@@ -661,7 +663,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             protoValueOrPointer: PrimitiveOrPointer
         ): boolean => {
             targetPointer();
-            const target = getRef();
+            const target = getSelectedTarget();
             const proto = getLocalValue(protoValueOrPointer);
             return setPrototypeOf(target, proto);
         },
