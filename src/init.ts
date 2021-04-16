@@ -502,6 +502,7 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             const shadowTarget = createShadowTarget(typeofNextTarget, protoInNextTarget, functionNameOfNextTarget, isNextTargetAnArray);
             const proxyHandler = new BoundaryProxyHandler(pointer);
             const proxy = new Proxy<ShadowTarget>(shadowTarget, proxyHandler as ProxyHandler<ShadowTarget>);
+            WeakMapSet.call(proxyTargetToPointerMap, proxy, pointer);
             return selectTarget.bind(undefined, proxy);
         },
         // callableApply
