@@ -3,7 +3,7 @@ import localInit, { ConnectCallback, ProxyTarget }  from './init';
 const localInitSourceText = localInit.toString();
 
 // @ts-ignore
-export class NearRealm extends Realm {
+export class IRealm extends Realm {
 
     #foreignIndirectEval: (sourceText: string) => any;
     #foreignImport: (specifier: string) =>Promise<any>;
@@ -55,6 +55,10 @@ export class NearRealm extends Realm {
             return foreignNSObj[name];
         }
         throw new TypeError(`Invalid Binding Name`);
+    }
+
+    async import(specifier: string): Promise<any> {
+        return await this.#foreignImport(specifier);
     }
 
 }

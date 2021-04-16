@@ -1,13 +1,13 @@
-import localInit  from './init.js';
+import localInit  from '../lib/init.js';
 
 const iframe = document.body.querySelector('iframe');
 const evaluate = iframe.contentWindow.eval;
 
 const localInitSourceText = `(${localInit.toString()})`;
 
-let foreignIndirectEval;
-let foreignImport;
-let foreignGlobalThis;
+// let foreignIndirectEval;
+// let foreignImport;
+// let foreignGlobalThis;
 
 const undefinedSymbol = Symbol();
 let localHooks;
@@ -28,10 +28,7 @@ foreignConnect(...localHooks);
 foreignExportValues();
 
 // TODO: Investigate why destructuring of apis does not work properly.
-const apis = localGetRef();
-foreignGlobalThis = apis[0];
-foreignIndirectEval = apis[1];
-foreignImport = apis[2];
+const [ foreignGlobalThis, foreignIndirectEval, foreignImport ] = localGetRef();
 
 const r = {
     get globalThis() {
@@ -55,3 +52,4 @@ const r = {
 // Ready to execute code as r.* ...
 console.log(r.globalThis.Array, r.globalThis.Array === Array);
 console.log(new (r.globalThis.Array)(1, 2, 3).length);
+console.log(r.globalThis.Array === r.globalThis.Array);

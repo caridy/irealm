@@ -1,8 +1,7 @@
 {
-  "name": "near-realm",
+  "name": "irealm",
   "version": "1.0.0",
-  "main": "index.js",
-  "repository": "git@github.com:caridy/near-realm.git",
+  "repository": "git@github.com:caridy/irealm.git",
   "author": "Caridy Patiño <caridy@gmail.com>",
   "license": "MIT",
   "dependencies": {
