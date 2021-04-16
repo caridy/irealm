@@ -1,4 +1,4 @@
-import localInit, { ConnectCallback, ProxyTarget }  from './init';
+import localInit, { ConnectCallback, ProxyTarget, Pointer }  from './init';
 
 const localInitSourceText = localInit.toString();
 
@@ -15,7 +15,7 @@ export class IRealm extends Realm {
         let localHooks: Parameters<ConnectCallback>;
         let foreignHooks: Parameters<ConnectCallback>;
         let localGetRef: () => ProxyTarget;
-        let foreignExportValues: () => void;
+        let foreignExportValues: () => Pointer;
         const localConnect = localInit(undefinedSymbol, (_exportValues, getRef, ...hooks) => {
             localGetRef = getRef;
             localHooks = hooks;
@@ -30,9 +30,14 @@ export class IRealm extends Realm {
         // @ts-ignore
         foreignConnect(...localHooks);
         // @ts-ignore
-        foreignExportValues();
+        const exportValuesPointer = foreignExportValues();
+        exportValuesPointer();
         // @ts-ignore
-        const [ foreignIndirectEval, foreignImport, foreignGlobalThis ] = localGetRef() as any;
+        const {
+            globalThis: foreignGlobalThis,
+            indirectEval: foreignIndirectEval,
+            importModule: foreignImport,
+        } = localGetRef() as any;
         this.#foreignGlobalThis = foreignGlobalThis;
         this.#foreignIndirectEval = foreignIndirectEval;
         this.#foreignImport = foreignImport;

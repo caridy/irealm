@@ -25,10 +25,14 @@ const foreignConnect = foreignInit(undefinedSymbol, (exportValues, _getRef, ...h
 });
 localConnect(...foreignHooks);
 foreignConnect(...localHooks);
-foreignExportValues();
+const exportValuesPointer = foreignExportValues();
 
-// TODO: Investigate why destructuring of apis does not work properly.
-const [ foreignGlobalThis, foreignIndirectEval, foreignImport ] = localGetRef();
+exportValuesPointer();
+const {
+    globalThis: foreignGlobalThis,
+    indirectEval: foreignIndirectEval,
+    importModule: foreignImport,
+} = localGetRef();
 
 const r = {
     get globalThis() {

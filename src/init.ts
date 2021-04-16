@@ -1,4 +1,4 @@
-type Pointer = CallableFunction;
+export type Pointer = CallableFunction;
 type PrimitiveValue = number | symbol | string | boolean | bigint | null | undefined;
 type PrimitiveOrPointer = Pointer | PrimitiveValue;
 export type ProxyTarget = CallableFunction | any[] | object;
@@ -87,7 +87,7 @@ export type ConnectCallback = (
     callableSetPrototypeOf: CallableSetPrototypeOf
 ) => void;
 type HooksCallback = (
-    exportValues: () => void,
+    exportValues: () => Pointer,
     getRef: () => ProxyTarget,
     ...connectArgs: Parameters<ConnectCallback>
 ) => void;
@@ -282,6 +282,8 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             functionNameOfNextTarget, // only for typeofTarget === 'function'
             isNextTargetAnArray, // only for typeofTarget !== 'function'
         );
+        // In case debugging is needed, the following line can help greatly:
+        // pointerForOriginalTarget.originalTarget = pointer.originalTarget = originalTarget;
         WeakMapSet.call(proxyTargetToPointerMap, originalTarget, pointer);
         return pointer;
     }
@@ -483,12 +485,11 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
     foreignCallableHooksCallback(
         // exportValues
         () => {
-            const pointer = getPointer([
+            return getPointer({
                 globalThis,
-                (sourceText: string) => cachedLocalEval(sourceText),
-                (specifier: string) => import(specifier),
-            ]);
-            pointer();
+                indirectEval: (sourceText: string) => cachedLocalEval(sourceText),
+                importModule: (specifier: string) => import(specifier),
+            });
         },
         getSelectedTarget,
         // pushTarget
