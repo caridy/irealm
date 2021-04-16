@@ -111,6 +111,8 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
     } = Reflect;
     const { freeze, create, defineProperties } = Object;
     const { isArray: isArrayOrNotOrThrowForRevoked } = Array;
+    const { set: WeakMapSet, get: WeakMapGet } = WeakMap.prototype;
+    const proxyTargetToPointerMap = new WeakMap();
 
     let selectedTarget: undefined | ProxyTarget;
     let foreignPushTarget: CallablePushTarget;
@@ -236,6 +238,10 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
     }
 
     function getPointer(originalTarget: ProxyTarget): Pointer {
+        let pointer = WeakMapGet.call(proxyTargetToPointerMap, originalTarget);
+        if (pointer) {
+            return pointer;
+        }
         // extracting the metadata about the proxy target
         const typeofNextTarget = typeof originalTarget;
         let protoInNextTarget: boolean | undefined;
@@ -269,13 +275,15 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             }
         }
         const pointerForOriginalTarget = () => selectTarget(originalTarget); // the closure works as the implicit WeakMap
-        return foreignPushTarget(
+        pointer = foreignPushTarget(
             pointerForOriginalTarget,
             typeofNextTarget as ProxyTargetType,
             protoInNextTarget, // only for typeofTarget === 'function'
             functionNameOfNextTarget, // only for typeofTarget === 'function'
             isNextTargetAnArray, // only for typeofTarget !== 'function'
         );
+        WeakMapSet.call(proxyTargetToPointerMap, originalTarget, pointer);
+        return pointer;
     }
 
     function getLocalValue(primitiveValueOrForeignCallable: PrimitiveOrPointer): any {
