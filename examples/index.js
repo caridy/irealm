@@ -1,10 +1,6 @@
 import localInit  from '../lib/init.js';
 
-// const iframe = document.body.querySelector('iframe');
-// const evaluate = iframe.contentWindow.eval;
-
-const realm = new Realm();
-const evaluate = realm.evaluate.bind(realm);
+const { evaluate } = globalThis;
 
 const localInitSourceText = `(${localInit.toString()})`;
 
