@@ -19,7 +19,7 @@ function _classApplyDescriptorSet(receiver, descriptor, value) { if (descriptor.
 
   var _evaluateInRealm = new WeakMap();
 
-  var _callableOrPrimitive = new WeakSet();
+  var _getPrimitiveOrWrappedCallable = new WeakSet();
 
   var _wrap = new WeakSet();
 
@@ -27,7 +27,6 @@ function _classApplyDescriptorSet(receiver, descriptor, value) { if (descriptor.
 
   var _errorCatcher = new WeakSet();
 
-  // const wm = new WeakMap();
   class Realm {
     constructor() {
       _errorCatcher.add(this);
@@ -36,7 +35,7 @@ function _classApplyDescriptorSet(receiver, descriptor, value) { if (descriptor.
 
       _wrap.add(this);
 
-      _callableOrPrimitive.add(this);
+      _getPrimitiveOrWrappedCallable.add(this);
 
       _realm.set(this, {
         get: _get_realm,
@@ -53,7 +52,7 @@ function _classApplyDescriptorSet(receiver, descriptor, value) { if (descriptor.
         value: str => {
           const result = _classPrivateFieldGet(this, _iframe).contentWindow.eval(str);
 
-          return _classPrivateMethodGet(this, _callableOrPrimitive, _callableOrPrimitive2).call(this, result);
+          return _classPrivateMethodGet(this, _getPrimitiveOrWrappedCallable, _getPrimitiveOrWrappedCallable2).call(this, result);
         }
       });
 
@@ -92,7 +91,7 @@ function _classApplyDescriptorSet(receiver, descriptor, value) { if (descriptor.
     };
   };
 
-  var _callableOrPrimitive2 = function _callableOrPrimitive2(value) {
+  var _getPrimitiveOrWrappedCallable2 = function _getPrimitiveOrWrappedCallable2(value) {
     if (typeof value === 'function') {
       return _classPrivateMethodGet(this, _wrap, _wrap2).call(this, value);
     }
@@ -106,11 +105,11 @@ function _classApplyDescriptorSet(receiver, descriptor, value) { if (descriptor.
   };
 
   var _wrap2 = function _wrap2(connectedFn) {
-    const callableOrPrimitive = _classPrivateMethodGet(this, _callableOrPrimitive, _callableOrPrimitive2).bind(this);
+    const getPrimitiveOrWrappedCallable = _classPrivateMethodGet(this, _getPrimitiveOrWrappedCallable, _getPrimitiveOrWrappedCallable2).bind(this);
 
     return function (...args) {
-      const wrappedArgs = Array.from(args, arg => callableOrPrimitive(arg));
-      return callableOrPrimitive(connectedFn(...wrappedArgs));
+      const wrappedArgs = args.map(getPrimitiveOrWrappedCallable);
+      return getPrimitiveOrWrappedCallable(connectedFn(...wrappedArgs));
     };
   };
 
