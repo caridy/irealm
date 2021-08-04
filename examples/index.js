@@ -57,3 +57,20 @@ const r = {
 console.log(r.globalThis.Array, r.globalThis.Array === Array);
 console.log(new (r.globalThis.Array)(1, 2, 3).length);
 console.log(r.globalThis.Array === r.globalThis.Array);
+
+// More advanced integration with custom function calls, and object identity:
+r.evaluate(`window.factory = function () {
+    return {
+        x: 1,
+        get y() {
+            return this.x;
+        },
+        z() {
+            return this.x;
+        }
+    };
+}`);
+const o = r.globalThis.factory();
+console.log(o.x);
+console.log(o.y);
+console.log(o.z());
