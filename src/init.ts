@@ -3,13 +3,10 @@ type PrimitiveValue = number | symbol | string | boolean | bigint | null | undef
 type PrimitiveOrPointer = Pointer | PrimitiveValue;
 export type ProxyTarget = CallableFunction | any[] | object;
 type ShadowTarget = CallableFunction | any[] | object;
-type ProxyTargetType = "object" | "function" | "array";
 type CallablePushTarget = (
     pointer: () => void,
-    typeofNextTarget: ProxyTargetType,
-    protoInNextTarget: boolean | undefined, // only for typeofTarget === 'function'
-    functionNameOfNextTarget: string | undefined, // only for typeofTarget === 'function'
-    isNextTargetAnArray: boolean | undefined, // only for typeofTarget !== 'function'
+    targetTraits: number,
+    targetFunctionName: string | undefined,
 ) => () => void;
 type CallableApply = (
     targetPointer: Pointer,
@@ -130,6 +127,14 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
     let foreignCallableSet: CallableSet;
     let foreignCallableSetPrototypeOf: CallableSetPrototypeOf;
 
+    enum TargetTraits {
+        None = 0,
+        IsArray = 1 << 0,
+        IsFunction = 1 << 1,
+        IsObject = 1 << 2,
+        IsArrowFunction = 1 << 3,
+    }
+
     function selectTarget(originalTarget: ProxyTarget): void {
         // assert: selectedTarget is undefined
         // assert: originalTarget is a ProxyTarget
@@ -143,29 +148,28 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
         return r;
     }
 
+
     function createShadowTarget(
-        typeofTarget: string,
-        protoInTarget: boolean | undefined,
-        functionNameOfTarget: string | undefined,
-        isTargetAnArray: boolean | undefined,
+        targetTraits: TargetTraits,
+        targetFunctionName: string | undefined,
     ): ShadowTarget {
         let shadowTarget;
-        if (typeofTarget === 'function') {
+        if (targetTraits & TargetTraits.IsFunction) {
             // this new shadow target function is never invoked just needed to anchor the realm
-            try {
-                shadowTarget = protoInTarget ? function () {} : () => {};
-            } catch {
-                // target is a revoked proxy
-                shadowTarget = function () {};
-            }
+            // According the comment above, this function will never be called, therefore the
+            // code should not be instrumented for code coverage.
+            //
+            // istanbul ignore next
+            // eslint-disable-next-line func-names
+            shadowTarget = targetTraits & TargetTraits.IsArrowFunction ? () => {} : function () {};
             // This is only really needed for debugging, it helps to identify the proxy by name
             defineProperty(shadowTarget, 'name', {
-                value: functionNameOfTarget,
+                value: targetFunctionName,
                 configurable: true,
             });
         } else {
             // target is array or object
-            shadowTarget = isTargetAnArray ? [] : {};
+            shadowTarget = targetTraits & TargetTraits.IsArray ? [] : {};
         }
         return shadowTarget;
     }
@@ -243,45 +247,39 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
             return pointer;
         }
         // extracting the metadata about the proxy target
-        const typeofNextTarget = typeof originalTarget;
-        let protoInNextTarget: boolean | undefined;
-        let functionNameOfNextTarget: string | undefined;
-        let isNextTargetAnArray: boolean | undefined;
-        if (typeofNextTarget) {
-            // this is never invoked just needed to anchor the realm for errors
+        let targetTraits = TargetTraits.None;
+        let targetFunctionName: string | undefined;
+        if (typeof originalTarget === 'function') {
+            targetTraits |= TargetTraits.IsFunction;
+            // detecting arrow function vs function
             try {
-                protoInNextTarget = 'prototype' in originalTarget;
+                targetTraits |= +!('prototype' in originalTarget) && TargetTraits.IsArrowFunction;
             } catch {
                 // target is either a revoked proxy, or a proxy that throws on the
                 // `has` trap, in which case going with a strict mode function seems
                 // appropriate.
-                protoInNextTarget = true;
             }
             try {
                 // a revoked proxy will throw when reading the function name
-                functionNameOfNextTarget = getOwnPropertyDescriptor(originalTarget, 'name')?.value;
+                targetFunctionName = getOwnPropertyDescriptor(originalTarget, 'name')?.value;
             } catch {
                 // intentionally swallowing the error because this method is just extracting the function
                 // in a way that it should always succeed except for the cases in which the provider is a proxy
                 // that is either revoked or has some logic to prevent reading the name property descriptor.
             }
         } else {
+            let targetIsArray = false;
             try {
                 // try/catch in case Array.isArray throws when target is a revoked proxy
-                isNextTargetAnArray = isArrayOrNotOrThrowForRevoked(originalTarget);
+                targetIsArray = isArrayOrNotOrThrowForRevoked(originalTarget);
             } catch {
                 // target is a revoked proxy, so the type doesn't matter much from this point on
-                isNextTargetAnArray = false;
             }
+            targetTraits |= +targetIsArray && TargetTraits.IsArray;
+            targetTraits |= +!targetIsArray && TargetTraits.IsObject;
         }
         const pointerForOriginalTarget = () => selectTarget(originalTarget); // the closure works as the implicit WeakMap
-        pointer = foreignPushTarget(
-            pointerForOriginalTarget,
-            typeofNextTarget as ProxyTargetType,
-            protoInNextTarget, // only for typeofTarget === 'function'
-            functionNameOfNextTarget, // only for typeofTarget === 'function'
-            isNextTargetAnArray, // only for typeofTarget !== 'function'
-        );
+        pointer = foreignPushTarget(pointerForOriginalTarget, targetTraits, targetFunctionName);
         // In case debugging is needed, the following line can help greatly:
         // pointerForOriginalTarget.originalTarget = pointer.originalTarget = originalTarget;
         WeakMapSet.call(proxyTargetToPointerMap, originalTarget, pointer);
@@ -495,12 +493,10 @@ export default function init(undefinedSymbol: symbol, foreignCallableHooksCallba
         // pushTarget
         (
             pointer: () => void,
-            typeofNextTarget: ProxyTargetType,
-            protoInNextTarget: boolean | undefined, // only for typeofTarget === 'function'
-            functionNameOfNextTarget: string | undefined, // only for typeofTarget === 'function'
-            isNextTargetAnArray: boolean | undefined, // only for typeofTarget !== 'function'
+            targetTraits: TargetTraits,
+            targetFunctionName: string | undefined,
         ): () => void => {
-            const shadowTarget = createShadowTarget(typeofNextTarget, protoInNextTarget, functionNameOfNextTarget, isNextTargetAnArray);
+            const shadowTarget = createShadowTarget(targetTraits, targetFunctionName);
             const proxyHandler = new BoundaryProxyHandler(pointer);
             const proxy = new Proxy<ShadowTarget>(shadowTarget, proxyHandler as ProxyHandler<ShadowTarget>);
             WeakMapSet.call(proxyTargetToPointerMap, proxy, pointer);
