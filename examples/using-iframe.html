@@ -2,12 +2,11 @@
     <h1>Validation via iframes</h1>
     <p>This example relies on an iframe rather than an actual Realm to validate the membrane implementation.</p>
 
-    <p>See the version <a href="/examples/using-iframe.html">using iframe</a>.</p>
+    <p>See the version <a href="/examples/index.html">using Realm</a>.</p>
     <iframe hidden></iframe>
-    <script src="/examples/realms.js"></script>
     <script>
-        const realm = new Realm();
-        globalThis.evaluate = realm.evaluate.bind(realm);
+        const iframe = document.body.querySelector('iframe');
+        globalThis.evaluate = iframe.contentWindow.eval;
     </script>
     <script src="/examples/index.js" type="module"></script>
 </body>

@@ -1,7 +1,6 @@
 import localInit  from '../lib/init.js';
 
-const iframe = document.body.querySelector('iframe');
-const evaluate = iframe.contentWindow.eval;
+const { evaluate } = globalThis;
 
 const localInitSourceText = `(${localInit.toString()})`;
 
